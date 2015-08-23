@@ -1,7 +1,24 @@
-require(stringi)
+suppressPackageStartupMessages(require(ggplot2))
+suppressPackageStartupMessages(require(grid))
+suppressPackageStartupMessages(require(gridExtra))
+suppressPackageStartupMessages(require(stringi))
+
 ## Read data
 stormData <- read.csv("./data/repdata_data_StormData.csv.bz2", 
                       stringsAsFactors = FALSE)
+
+## Check data
+Oldest <- min(as.POSIXct(stormData$BGN_DATE, tz = "", "%m/%d/%Y %H:%M:%S"))
+Newest <- max(as.POSIXct(stormData$BGN_DATE, tz = "", "%m/%d/%Y %H:%M:%S"))
+
+evtypes <- unique(stri_trans_toupper(stri_trim(stormData$EVTYPE)))
+evtypes <- evtypes[order(evtypes)]
+summary(evtypes)
+
+exptypes <- unique(c(stri_trans_toupper(stri_trim(stormData$PROPDMGEXP)),
+                     stri_trans_toupper(stri_trim(stormData$CROPDMGEXP))))
+exptypes <- exptypes[order(exptypes)]
+summary(exptypes)
 
 ## Impact on human health
 ## Define impact as number of fatalities + number of injuries
@@ -21,9 +38,17 @@ head(victims_byType_all)
 head(victims_byType_fatal)
 head(victims_byType_injur)
 
-barplot(victims_byType_all$VICTIMS[5:1], 
-        names.arg = victims_byType_all$EVTYPE[5:1], 
-        horiz = TRUE, axes = TRUE, axisnames = TRUE, las = 1)
+##barplot(victims_byType_all$VICTIMS[5:1], 
+##       names.arg = victims_byType_all$EVTYPE[5:1], 
+##       horiz = TRUE, axes = TRUE, axisnames = TRUE, las = 1)
+
+ggplot(victims_byType_all[1:5,], aes(y = VICTIMS, x = EVTYPE)) +
+    geom_bar(stat = "identity") +
+    scale_x_discrete(limits = victims_byType_all$EVTYPE[1:5]) +
+    ggtitle("Impact of Extreme Weather Events on Population Health\n Top 5 Event Types by Number of Victims") +
+    theme(plot.title=element_text(size=rel(1.5), lineheight=1.0,
+                                  face="bold")) +
+    xlab("Weather Event Type") + ylab("Number of Victims (Fatalities + Injuries)")
 
 ## Economic impact
 ## Define impact as sum of property damage and crop damage

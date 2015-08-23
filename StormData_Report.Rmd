@@ -1,0 +1,183 @@
+---
+output: html_document
+---
+
+#The Costs of Natural Desasters: Tornados Claim the Most Victims, Floods Cause the Highest Damage
+
+##Synopsis
+
+Extreme weather events (natural desasters) can result in fatalities, injuries, and property damage. To enable legislators and administration to determine what action to take to prevent such outcomes to the extent possible, we analysed event outcome data to identify the most critical types of event. We obtained the outcome data from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage. Our analysis shows that - across the United States - **Tornados claim the most victims** (fatalities and injuries), but **Floods cause the highest damage** (property damage and crop damage).
+
+##Data Processing
+
+We obtained the data from the [NOAA's National Climatic Data Center Storm Events Database][http://www.ncdc.noaa.gov/stormevents/]. At the time of the download, the database contained data from **January 1950** to **November 2011**.
+
+###Environment
+The analysis was performed using *R version 3.2.2 (2015-08-14)* on Microsoft Windows 7 Professional SP1 64-bit (R platform descriptor: *x86_64-w64-mingw32/x64 (64-bit)*). 
+
+Additional packages:
+
+Package   | Version
+--------- | -------
+ggplot2   | 1.0.1
+grid      | 3.2.2
+gridExtra | 2.0.0
+stringi   | 0.5.5
+
+```{r}
+suppressPackageStartupMessages(require(ggplot2))
+suppressPackageStartupMessages(require(grid))
+suppressPackageStartupMessages(require(gridExtra))
+suppressPackageStartupMessages(require(stringi))
+```
+
+###Loading the Data
+
+We read the data directly from the compressed archive (bz2 compression). The data is a comma-separated file with column names in row 1. Missing values are given as NULL values, i.e. there is no special coding of missing values.
+
+```{r cache=TRUE}
+stormData <- read.csv("./data/repdata_data_StormData.csv.bz2", 
+                      stringsAsFactors = FALSE)
+```
+
+There are 902297 rows in the data set and 37 columns.
+
+```{r}
+dim(stormData)
+colnames(stormData)
+```
+
+###Checking the data
+
+For our analysis we will use columns *REFNUM*, *EVTYPE*, *FATALITIES*, *INJURIES*, *PROPDMG*, *PROPDMGEXP*, *CROPDMG*, and *CROPDMGEXP* and we checked the first few rows for these columns.
+```{r}
+analysisColumns <- c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES", 
+                     "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+head(stormData[,analysisColumns])
+```
+
+Creating a summary for the columns to be used in the analysis shows us that the numerical columns *FATALITIES*, *INJURIES*, *PROPDMG*, and *CROPDMG* don'T contain missing values and are probably ok. (Column *REFNUM* was omitted from the summary as it is just an ID column.)
+
+```{r}
+summary(stormData[,analysisColumns[2:8]])
+```
+
+Documentation for the database lists 48 supported entries for column *EVTYPE* and 3 supported entries for columns *PROPDMGEXP* and *CROPDMGEXP*.
+
+A short check however reveals that there are 890 different entries for *EVTYPE* (after trimming leading and trailing spaces and transforming to upper case).
+
+```{r}
+evtypes <- unique(stri_trans_toupper(stri_trim(stormData$EVTYPE)))
+evtypes <- evtypes[order(evtypes)]
+summary(evtypes)
+```
+
+Similar for *PROPDMGEXP* and *CROPDMGEXP*. Instead of the three supported entries there are 17 different values.
+
+
+```{r}
+exptypes <- unique(c(stri_trans_toupper(stri_trim(stormData$PROPDMGEXP)),
+                     stri_trans_toupper(stri_trim(stormData$CROPDMGEXP))))
+exptypes <- exptypes[order(exptypes)]
+summary(exptypes)
+
+```
+
+
+##Results
+
+###Impact on Population Health
+
+To measure the impact on population help we decided to use the total number of victims (sum of fatalities and injuries).
+
+```{r}
+## Get subset of data
+victims <- stormData[, c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES")]
+victims <- subset(victims, victims$FATALITIES > 0 | victims$INJURIES > 0)
+victims$EVTYPE <- stri_trans_toupper(stri_trim(victims$EVTYPE))
+
+## Calculate total number of victims and aggregate by event type
+victims$VICTIMS <- victims$FATALITIES + victims$INJURIES
+victims_byType <- aggregate(victims[c("FATALITIES", "INJURIES", "VICTIMS")], 
+                            by = victims["EVTYPE"], FUN = sum)
+
+```
+
+Sorting by the number of victims from high to low shows that **tornados claim by far the highest number of victims**.
+
+```{r}
+victims_byType_all <- victims_byType[order(victims_byType$VICTIMS, 
+                                           decreasing = TRUE),]
+head(victims_byType_all)
+```
+
+```{r}
+ggplot(victims_byType_all[1:5,], aes(y = VICTIMS, x = EVTYPE)) +
+    geom_bar(stat = "identity") +
+    scale_x_discrete(limits = victims_byType_all$EVTYPE[1:5]) +
+    ggtitle("Impact of Extreme Weather Events on Population Health\n Top 5 Event Types by Number of Victims") +
+    theme(plot.title=element_text(size=rel(1.4), lineheight=1.0,
+                                  face="bold")) +
+    xlab("Weather Event Type") + ylab("Number of Victims (Fatalities + Injuries)")
+```
+
+###Economic Consequences
+In the database there are separate entries for property damage and crop damage. To measure economic consequences we decided to use the sum of property and crop damage.
+
+Damages are not given by a single number but in a kind of scientific notation with the mantissa in fields *xROPDMG* and the exponent in fields *xROPDMGEXP*. Addionally the exponent is coded as K (10^3^), M (10^6^), and B (10^9^). To get the value of the damages it is therefore necessary to first decode the exponent and then multiply mantissa and exponent.
+
+```{r}
+## Get subset of data
+damage <- stormData[, c("REFNUM", "EVTYPE", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+damage <- subset(damage, damage$PROPDMG > 0 | damage$CROPDMG > 0)
+damage$EVTYPE <- stri_trans_toupper(stri_trim(damage$EVTYPE))
+damage$PROPDMGEXP <- stri_trans_toupper(damage$PROPDMGEXP)
+damage$CROPDMGEXP <- stri_trans_toupper(damage$CROPDMGEXP)
+
+## Decode exponents
+getEXP_strict <- function(x) {
+    if (x == "") {
+        1
+    }
+    else {
+        switch(x,
+               K = 1000,
+               M = 1000000,
+               B = 1000000000,
+               NA)
+    }
+}
+
+damage$PROPEXP_strict <- sapply(damage$PROPDMGEXP, FUN = getEXP_strict, USE.NAMES = FALSE)
+damage$CROPEXP_strict <- sapply(damage$CROPDMGEXP, FUN = getEXP_strict, USE.NAMES = FALSE)
+
+## Calculate total damage and  aggregate by event type
+damage$PROPDMG_strict <- mapply(function(x, y) {x * y}, 
+                                damage$PROPDMG, damage$PROPEXP_strict, USE.NAMES = FALSE)
+damage$CROPDMG_strict <- mapply(function(x, y) {x * y}, 
+                                damage$CROPDMG, damage$CROPEXP_strict, USE.NAMES = FALSE)
+damage$DMG_strict <- damage$PROPDMG_strict + damage$CROPDMG_strict
+damage_byType <- aggregate(damage["DMG_strict"], 
+                           by = damage["EVTYPE"], FUN = sum)
+```
+
+Sorting by the value of damages from high to low shows that **floods cause the highest damages**.
+
+```{r}
+damage_byType_strict <- damage_byType[order(damage_byType$DMG_strict, decreasing = TRUE),]
+head(damage_byType_strict)
+
+```
+
+```{r}
+ggplot(damage_byType_strict[1:5,], aes(y = DMG_strict/1000000000, x = EVTYPE)) + 
+    geom_bar(stat = "identity") + 
+    scale_x_discrete(limits = damage_byType_strict$EVTYPE[1:5]) + 
+    ggtitle("Economic Consequences of Extreme Weather Events\n Top 5 Event Types by Height of Damages") +
+    theme(plot.title=element_text(size=rel(1.4), lineheight=1.0,
+                                  face="bold")) +
+    xlab("Weather Event Type") + ylab("Damages in Billion US$ (Property + Crops)")
+
+```
+
+
